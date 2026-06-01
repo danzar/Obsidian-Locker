@@ -15,8 +15,8 @@
  *   locker-scope: vault
  *   ---
  *
- *   > [!lock]- Encrypted with Obsidian Locker
- *   > Run "Locker: Unlock note" (or click the ribbon) to decrypt.
+ *   > [!lock]- Encrypted with Lockbox
+ *   > Run "Lockbox: Unlock note" (or click the ribbon) to decrypt.
  *
  *   ```locker
  *   {"v":1,...}
@@ -56,10 +56,10 @@ export function buildLockedNote(payload: LockerPayload): string {
 		`locker-scope: ${payload.scope}`,
 		"---",
 		"",
-		"> [!lock]- 🔒 Encrypted with Obsidian Locker",
+		"> [!lock]- 🔒 Encrypted with Lockbox",
 		`> This note is locked${
 			payload.scope === "note" ? " with its own password" : ""
-		}. Run **Locker: Unlock note** (or click the ribbon lock icon) to decrypt it.`,
+		}. Run **Lockbox: Unlock note** (or click the ribbon lock icon) to decrypt it.`,
 		"",
 		"```locker",
 		json,
@@ -68,7 +68,7 @@ export function buildLockedNote(payload: LockerPayload): string {
 	].join("\n");
 }
 
-/** Returns true if the file content is a Locker-encrypted note. */
+/** Returns true if the file content is a Lockbox-encrypted note. */
 export function isLocked(content: string): boolean {
 	const fm = leadingFrontmatter(content);
 	if (!fm || !/^locker:\s*true\s*$/m.test(fm)) return false;

@@ -67,7 +67,7 @@ export default class LockerPlugin extends Plugin {
 
 		this.addSettingTab(new LockerSettingTab(this.app, this));
 
-		this.addRibbonIcon("lock", "Locker: toggle lock on current note", async () => {
+		this.addRibbonIcon("lock", "Lockbox: toggle lock on current note", async () => {
 			await this.toggleActiveNote();
 		});
 
@@ -235,13 +235,13 @@ export default class LockerPlugin extends Plugin {
 	private addFileMenuItems(menu: Menu, file: TFile): void {
 		menu.addItem((item) =>
 			item
-				.setTitle("Locker: lock note")
+				.setTitle("Lockbox: lock note")
 				.setIcon("lock")
 				.onClick(() => this.lockNote(file, "vault"))
 		);
 		menu.addItem((item) =>
 			item
-				.setTitle("Locker: unlock note")
+				.setTitle("Lockbox: unlock note")
 				.setIcon("unlock")
 				.onClick(() => this.unlockNote(file))
 		);
@@ -251,13 +251,13 @@ export default class LockerPlugin extends Plugin {
 		if (this.notesInFolder(folder).length === 0) return; // nothing to act on
 		menu.addItem((item) =>
 			item
-				.setTitle("Locker: lock all notes in folder")
+				.setTitle("Lockbox: lock all notes in folder")
 				.setIcon("lock")
 				.onClick(() => this.lockFolder(folder))
 		);
 		menu.addItem((item) =>
 			item
-				.setTitle("Locker: unlock all notes in folder")
+				.setTitle("Lockbox: unlock all notes in folder")
 				.setIcon("unlock")
 				.onClick(() => this.unlockFolder(folder))
 		);
@@ -266,7 +266,7 @@ export default class LockerPlugin extends Plugin {
 	private async toggleActiveNote(): Promise<void> {
 		const file = this.app.workspace.getActiveFile();
 		if (!file || file.extension !== "md") {
-			new Notice("Locker: open a markdown note first.");
+			new Notice("Lockbox: open a markdown note first.");
 			return;
 		}
 		const content = await this.readLiveContent(file);
@@ -343,8 +343,8 @@ export default class LockerPlugin extends Plugin {
 		try {
 			await fn();
 		} catch (e) {
-			console.error("Locker: operation failed", e);
-			new Notice("Locker: operation failed. See console for details.");
+			console.error("Lockbox: operation failed", e);
+			new Notice("Lockbox: operation failed. See console for details.");
 		} finally {
 			this.inFlight.delete(path);
 		}
@@ -356,7 +356,7 @@ export default class LockerPlugin extends Plugin {
 	async lockNote(file: TFile, scope: LockerScope): Promise<void> {
 		await this.withFileLock(file.path, async () => {
 			if (isLocked(await this.readLiveContent(file))) {
-				new Notice("Locker: that note is already locked.");
+				new Notice("Lockbox: that note is already locked.");
 				return;
 			}
 
@@ -377,20 +377,20 @@ export default class LockerPlugin extends Plugin {
 				const payload = await this.seal(content, password, scope, this.settings.iterations);
 				const written = await this.writeContent(file, content, buildLockedNote(payload));
 				if (!written) {
-					new Notice(`Locker: "${file.basename}" changed while locking — left unlocked.`);
+					new Notice(`Lockbox: "${file.basename}" changed while locking — left unlocked.`);
 					return;
 				}
 				this.unlocked.delete(file.path);
 				await this.persist();
 				this.updateStatusBar();
-				new Notice(`Locker: locked "${file.basename}".`);
+				new Notice(`Lockbox: locked "${file.basename}".`);
 			} catch (e) {
 				if (e instanceof SelfCheckError) {
-					console.error("Locker: encryption self-check failed", e);
-					new Notice("Locker: encryption self-check failed — note left unlocked to avoid data loss.");
+					console.error("Lockbox: encryption self-check failed", e);
+					new Notice("Lockbox: encryption self-check failed — note left unlocked to avoid data loss.");
 				} else {
-					console.error("Locker: failed to lock note", e);
-					new Notice("Locker: failed to lock note. See console for details.");
+					console.error("Lockbox: failed to lock note", e);
+					new Notice("Lockbox: failed to lock note. See console for details.");
 				}
 			}
 		});
@@ -401,7 +401,7 @@ export default class LockerPlugin extends Plugin {
 			const content = await this.readLiveContent(file);
 			const payload = parseLockedNote(content);
 			if (!payload || !isLocked(content)) {
-				new Notice("Locker: that note isn't locked.");
+				new Notice("Lockbox: that note isn't locked.");
 				return;
 			}
 
@@ -420,7 +420,7 @@ export default class LockerPlugin extends Plugin {
 				const plaintext = await decryptContent(payload, password);
 				const written = await this.writeContent(file, content, plaintext);
 				if (!written) {
-					new Notice(`Locker: "${file.basename}" changed while unlocking — try again.`);
+					new Notice(`Lockbox: "${file.basename}" changed while unlocking — try again.`);
 					return;
 				}
 				this.unlocked.set(file.path, {
@@ -432,14 +432,14 @@ export default class LockerPlugin extends Plugin {
 				if (scope === "vault") this.cacheVaultPassword(password);
 				await this.persist();
 				this.updateStatusBar();
-				new Notice(`Locker: unlocked "${file.basename}".`);
+				new Notice(`Lockbox: unlocked "${file.basename}".`);
 			} catch (e) {
 				if (e instanceof DecryptError) {
-					new Notice("Locker: incorrect password.");
+					new Notice("Lockbox: incorrect password.");
 					if (scope === "vault") this.forgetVaultPassword(true);
 				} else {
-					console.error("Locker: failed to unlock note", e);
-					new Notice("Locker: failed to unlock note. See console for details.");
+					console.error("Lockbox: failed to unlock note", e);
+					new Notice("Lockbox: failed to unlock note. See console for details.");
 				}
 			}
 		});
@@ -477,14 +477,14 @@ export default class LockerPlugin extends Plugin {
 				const payload = await this.seal(content, password, info.scope, info.iterations);
 				const written = await this.writeContent(file, content, buildLockedNote(payload));
 				if (!written) {
-					new Notice(`Locker: "${file.basename}" changed while locking — left unlocked, will retry.`);
+					new Notice(`Lockbox: "${file.basename}" changed while locking — left unlocked, will retry.`);
 					return;
 				}
 				this.unlocked.delete(path);
 				await this.persist();
 			} catch (e) {
-				console.error("Locker: failed to auto-lock note", e);
-				new Notice(`Locker: could not auto-lock "${file.basename}" — it remains unlocked. See console.`);
+				console.error("Lockbox: failed to auto-lock note", e);
+				new Notice(`Lockbox: could not auto-lock "${file.basename}" — it remains unlocked. See console.`);
 			} finally {
 				this.updateStatusBar();
 			}
@@ -498,7 +498,7 @@ export default class LockerPlugin extends Plugin {
 		}
 		if (!silent) {
 			new Notice(
-				paths.length ? `Locker: locked ${paths.length} note(s).` : "Locker: nothing to lock."
+				paths.length ? `Lockbox: locked ${paths.length} note(s).` : "Lockbox: nothing to lock."
 			);
 		}
 	}
@@ -516,7 +516,7 @@ export default class LockerPlugin extends Plugin {
 	/** Confirmation gate for mass operations. Overridable for tests. */
 	protected confirmBulk(verb: string, count: number, where: string): Promise<boolean> {
 		return new ConfirmModal(this.app, {
-			title: `Locker: ${verb} ${count} note(s)?`,
+			title: `Lockbox: ${verb} ${count} note(s)?`,
 			message: `This will ${verb} ${count} note(s) in ${where}.`,
 			cta: "Proceed",
 		}).open();
@@ -535,11 +535,11 @@ export default class LockerPlugin extends Plugin {
 				const content = await this.readLiveContent(file);
 				if (!isLocked(content)) work.push({ file, content });
 			} catch (e) {
-				console.error("Locker: could not read note for bulk lock", file.path, e);
+				console.error("Lockbox: could not read note for bulk lock", file.path, e);
 			}
 		}
 		if (work.length === 0) {
-			new Notice("Locker: no unlocked notes to lock here.");
+			new Notice("Lockbox: no unlocked notes to lock here.");
 			return;
 		}
 		if (!(await this.confirmBulk("encrypt", work.length, this.describeFolder(folder)))) return;
@@ -547,7 +547,7 @@ export default class LockerPlugin extends Plugin {
 		const password = await this.ensureVaultPassword(true);
 		if (!password) return;
 
-		const progress = new Notice(`Locker: locking ${work.length} note(s)…`, 0);
+		const progress = new Notice(`Lockbox: locking ${work.length} note(s)…`, 0);
 		let locked = 0;
 		let changed = 0;
 		let failed = 0;
@@ -567,7 +567,7 @@ export default class LockerPlugin extends Plugin {
 							trouble.push(file.basename);
 						}
 					} catch (e) {
-						console.error("Locker: failed to lock note in bulk", file.path, e);
+						console.error("Lockbox: failed to lock note in bulk", file.path, e);
 						failed++;
 						trouble.push(file.basename);
 					}
@@ -601,14 +601,14 @@ export default class LockerPlugin extends Plugin {
 				if ((payload.scope ?? readScope(content)) === "note") perNote++;
 				else work.push({ file, content, payload });
 			} catch (e) {
-				console.error("Locker: could not read note for bulk unlock", file.path, e);
+				console.error("Lockbox: could not read note for bulk unlock", file.path, e);
 			}
 		}
 		if (work.length === 0) {
 			new Notice(
 				perNote > 0
-					? `Locker: ${perNote} note(s) here use a separate password — unlock them individually.`
-					: "Locker: no vault-password notes to unlock here."
+					? `Lockbox: ${perNote} note(s) here use a separate password — unlock them individually.`
+					: "Lockbox: no vault-password notes to unlock here."
 			);
 			return;
 		}
@@ -626,7 +626,7 @@ export default class LockerPlugin extends Plugin {
 		const password = await this.ensureVaultPassword(false);
 		if (!password) return;
 
-		const progress = new Notice(`Locker: unlocking ${work.length} note(s)…`, 0);
+		const progress = new Notice(`Lockbox: unlocking ${work.length} note(s)…`, 0);
 		let unlockedCount = 0;
 		let wrongPassword = 0;
 		let changed = 0;
@@ -658,7 +658,7 @@ export default class LockerPlugin extends Plugin {
 						if (e instanceof DecryptError) {
 							wrongPassword++;
 						} else {
-							console.error("Locker: failed to unlock note in bulk", file.path, e);
+							console.error("Lockbox: failed to unlock note in bulk", file.path, e);
 							failed++;
 						}
 						trouble.push(file.basename);
@@ -704,7 +704,7 @@ export default class LockerPlugin extends Plugin {
 		if (issues.failed) parts.push(`${issues.failed} failed`);
 		if (issues.skipped) parts.push(`${issues.skipped} busy`);
 		const names = trouble.length ? ` Left unchanged: ${trouble.slice(0, 5).join(", ")}${trouble.length > 5 ? "…" : ""}.` : "";
-		return `Locker: ${verb} ${ok} note(s)${parts.length ? ` — ${parts.join(", ")}` : ""}.${names}`;
+		return `Lockbox: ${verb} ${ok} note(s)${parts.length ? ` — ${parts.join(", ")}` : ""}.${names}`;
 	}
 
 	/**
@@ -737,8 +737,8 @@ export default class LockerPlugin extends Plugin {
 		this.statusBarEl.setAttribute(
 			"aria-label",
 			count > 0
-				? `Locker: ${count} note(s) unlocked (plaintext on disk) — click to lock all`
-				: "Locker: no notes are unlocked"
+				? `Lockbox: ${count} note(s) unlocked (plaintext on disk) — click to lock all`
+				: "Lockbox: no notes are unlocked"
 		);
 	}
 
@@ -763,8 +763,8 @@ export default class LockerPlugin extends Plugin {
 		await this.persist();
 		if (exposed.length > 0) {
 			new Notice(
-				`Locker: ${exposed.length} note(s) may have been left unlocked after an unclean shutdown. ` +
-					`Run "Locker: secure notes left exposed" to re-encrypt them.`,
+				`Lockbox: ${exposed.length} note(s) may have been left unlocked after an unclean shutdown. ` +
+					`Run "Lockbox: secure notes left exposed" to re-encrypt them.`,
 				12000
 			);
 		}
@@ -782,12 +782,12 @@ export default class LockerPlugin extends Plugin {
 					const payload = await this.seal(content, password, "vault", this.settings.iterations);
 					if (await this.writeContent(file, content, buildLockedNote(payload))) secured++;
 				} catch (e) {
-					console.error("Locker: failed to secure exposed note", e);
+					console.error("Lockbox: failed to secure exposed note", e);
 				}
 			});
 		}
 		this.exposed = [];
-		new Notice(`Locker: secured ${secured} note(s) with the vault password.`);
+		new Notice(`Lockbox: secured ${secured} note(s) with the vault password.`);
 	}
 
 	// ---- vault password session ----------------------------------------
@@ -822,7 +822,7 @@ export default class LockerPlugin extends Plugin {
 	forgetVaultPassword(silent = false): void {
 		this.vaultPassword = null;
 		this.vaultPasswordSetAt = 0;
-		if (!silent) new Notice("Locker: forgot the cached vault password.");
+		if (!silent) new Notice("Lockbox: forgot the cached vault password.");
 	}
 
 	// ---- events & timers ------------------------------------------------

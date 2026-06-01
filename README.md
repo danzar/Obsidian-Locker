@@ -1,4 +1,4 @@
-# Obsidian Locker
+# Lockbox
 
 Encrypt a note's **contents** while keeping its **title visible**. Locked notes
 stay as ordinary `.md` files — they show up in the file explorer, graph, and
@@ -32,6 +32,22 @@ unlock them with a password.
   ` ```locker ` block, so locked notes still sync, back up, and version like any
   other note.
 
+## Installation
+
+### From the Community Plugins store
+Once approved: in Obsidian go to **Settings → Community plugins → Browse**,
+search for **Lockbox**, install, then enable it.
+
+### Manual install
+Download `main.js`, `manifest.json`, and `styles.css` from the
+[latest release](https://github.com/danzar/Obsidian-Locker/releases/latest) and
+place them in `<your-vault>/.obsidian/plugins/lockbox/`, then enable
+**Lockbox** under Settings → Community plugins.
+
+### Beta testing with BRAT
+Track pre-release builds by adding the repo `danzar/Obsidian-Locker` in the
+[BRAT](https://github.com/TfTHacker/obsidian42-brat) plugin.
+
 ## How a locked note looks on disk
 
 ```markdown
@@ -40,8 +56,8 @@ locker: true
 locker-scope: vault
 ---
 
-> [!lock]- 🔒 Encrypted with Obsidian Locker
-> This note is locked. Run **Locker: Unlock note** (or click the ribbon lock
+> [!lock]- 🔒 Encrypted with Lockbox
+> This note is locked. Run **Lockbox: Unlock note** (or click the ribbon lock
 > icon) to decrypt it.
 
 ```locker
@@ -61,8 +77,8 @@ the tradeoffs of in-place editing:
   it as a normal note. Auto-lock-on-close (on by default), the inactivity timer
   (5 min default), and a best-effort lock on quit shrink this window. If the app
   crashes or is force-quit while a note is unlocked, plaintext can remain on
-  disk — on the next launch Locker detects this from a recovery ledger and
-  prompts you to run **Locker: Secure notes left exposed**.
+  disk — on the next launch Lockbox detects this from a recovery ledger and
+  prompts you to run **Lockbox: Secure notes left exposed**.
 - **There is no password recovery.** Forget a password and the note is
   unrecoverable. Keep backups of anything important.
 - The vault password is held in memory only and never persisted. It is cleared
@@ -76,11 +92,11 @@ the tradeoffs of in-place editing:
 The lock/unlock paths are written to avoid the data-loss traps of editing files
 that may be open or syncing:
 
-- **Live buffer is the source of truth.** When a note is open, Locker reads the
+- **Live buffer is the source of truth.** When a note is open, Lockbox reads the
   editor's current contents (including unsaved keystrokes) rather than stale
   disk content, so locking never encrypts away your latest edits.
 - **Atomic, checked writes.** Encryption can take a moment; if the file changes
-  during that window (you keep typing, or a sync client writes it), Locker
+  during that window (you keep typing, or a sync client writes it), Lockbox
   detects the change and aborts rather than overwriting — the note simply stays
   unlocked so you can retry.
 - **Self-check before overwrite** (see above) guarantees the ciphertext
@@ -92,14 +108,14 @@ that may be open or syncing:
 
 | Action | How |
 |--------|-----|
-| Lock the active note with the vault password | Command **Locker: Lock note (vault password)** or the ribbon lock icon |
-| Lock with a separate password | Command **Locker: Lock note with a separate password** |
-| Unlock the active note | Command **Locker: Unlock note**, ribbon icon, or just run unlock |
-| Re-encrypt everything now | Command **Locker: Lock all currently-unlocked notes** |
-| Lock/unlock a whole folder | Right-click a folder → **Locker: lock all notes in folder** / **unlock all notes in folder** |
-| Lock/unlock the entire vault | Commands **Locker: Lock every note in the vault** / **Unlock every vault-password note in the vault** |
-| Clear the cached vault password | Command **Locker: Forget vault password (lock session)** |
-| Re-secure notes left exposed by a crash | Command **Locker: Secure notes left exposed** (only available when needed) |
+| Lock the active note with the vault password | Command **Lockbox: Lock note (vault password)** or the ribbon lock icon |
+| Lock with a separate password | Command **Lockbox: Lock note with a separate password** |
+| Unlock the active note | Command **Lockbox: Unlock note**, ribbon icon, or just run unlock |
+| Re-encrypt everything now | Command **Lockbox: Lock all currently-unlocked notes** |
+| Lock/unlock a whole folder | Right-click a folder → **Lockbox: lock all notes in folder** / **unlock all notes in folder** |
+| Lock/unlock the entire vault | Commands **Lockbox: Lock every note in the vault** / **Unlock every vault-password note in the vault** |
+| Clear the cached vault password | Command **Lockbox: Forget vault password (lock session)** |
+| Re-secure notes left exposed by a crash | Command **Lockbox: Secure notes left exposed** (only available when needed) |
 
 ## Settings
 
@@ -124,10 +140,19 @@ npm test         # crypto + format round-trip tests
 ### Installing into a vault for testing
 
 Copy `manifest.json`, `main.js`, and `styles.css` into
-`<your-vault>/.obsidian/plugins/obsidian-locker/`, then enable **Locker** under
+`<your-vault>/.obsidian/plugins/lockbox/`, then enable **Lockbox** under
 Settings → Community plugins. (Re-run `npm run build` to refresh `main.js`.)
 
 ## Changelog
+
+### 0.5.0 — rename to Lockbox + submission prep
+- Renamed the plugin to **Lockbox** (id `lockbox`). The previous name/id
+  `obsidian-locker` couldn't be used — the community store forbids `obsidian` in
+  plugin ids, and `note-locker` / `Note Locker` was already taken. The on-disk
+  marker stays `locker` internally for compatibility.
+- Added a GitHub Actions release workflow that builds and attaches
+  `main.js` / `manifest.json` / `styles.css` on a version tag.
+- Installation instructions (store, manual, BRAT).
 
 ### 0.4.0 — bulk operations
 - **Folder & vault lock/unlock**: right-click a folder, or use the

@@ -1,5 +1,5 @@
 /*
- * Cryptography for Obsidian Locker.
+ * Cryptography for Lockbox.
  *
  * Uses the Web Crypto API (available in Obsidian's Electron runtime and on
  * mobile via Capacitor). Keys are derived from a password with PBKDF2 and
