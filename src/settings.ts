@@ -49,7 +49,7 @@ export class LockerSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName("Auto-lock after inactivity")
 			.setDesc("Minutes a note may stay unlocked before it is re-encrypted. 0 disables the timer.")
-			.addText((text) =>
+			.addText((text) => {
 				text
 					.setPlaceholder("5")
 					.setValue(String(this.plugin.settings.autoLockMinutes))
@@ -58,15 +58,19 @@ export class LockerSettingTab extends PluginSettingTab {
 						if (n === null) return; // ignore invalid/partial input; keep prior value
 						this.plugin.settings.autoLockMinutes = n;
 						await this.plugin.saveSettings();
-					})
-			);
+					});
+				// On blur, snap back to the saved value so invalid input is visibly rejected.
+				text.inputEl.addEventListener("blur", () =>
+					text.setValue(String(this.plugin.settings.autoLockMinutes))
+				);
+			});
 
 		new Setting(containerEl)
 			.setName("Forget vault password after")
 			.setDesc(
 				"Minutes the vault password stays cached in memory. After this you'll be asked again on the next unlock. 0 keeps it until Obsidian quits."
 			)
-			.addText((text) =>
+			.addText((text) => {
 				text
 					.setPlaceholder("30")
 					.setValue(String(this.plugin.settings.forgetPasswordMinutes))
@@ -77,15 +81,18 @@ export class LockerSettingTab extends PluginSettingTab {
 						if (n === null) return;
 						this.plugin.settings.forgetPasswordMinutes = n;
 						await this.plugin.saveSettings();
-					})
-			);
+					});
+				text.inputEl.addEventListener("blur", () =>
+					text.setValue(String(this.plugin.settings.forgetPasswordMinutes))
+				);
+			});
 
 		new Setting(containerEl)
 			.setName("Key derivation iterations")
 			.setDesc(
 				"PBKDF2 iterations used when locking new notes. Higher is slower but more resistant to brute force. Existing locked notes keep the value they were locked with."
 			)
-			.addText((text) =>
+			.addText((text) => {
 				text
 					.setPlaceholder(String(DEFAULT_ITERATIONS))
 					.setValue(String(this.plugin.settings.iterations))
@@ -96,8 +103,11 @@ export class LockerSettingTab extends PluginSettingTab {
 						if (n === null) return;
 						this.plugin.settings.iterations = n;
 						await this.plugin.saveSettings();
-					})
-			);
+					});
+				text.inputEl.addEventListener("blur", () =>
+					text.setValue(String(this.plugin.settings.iterations))
+				);
+			});
 
 		new Setting(containerEl)
 			.setName("Verify before overwriting")

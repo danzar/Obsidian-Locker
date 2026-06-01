@@ -1,6 +1,6 @@
 {
 	"name": "lockbox",
-	"version": "0.5.1",
+	"version": "0.5.2",
 	"description": "Encrypt note contents at rest while keeping the title visible.",
 	"main": "main.js",
 	"scripts": {

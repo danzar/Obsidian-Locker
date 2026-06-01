@@ -145,6 +145,23 @@ Settings → Community plugins. (Re-run `npm run build` to refresh `main.js`.)
 
 ## Changelog
 
+### 0.5.2 — bug sweep (mobile, recovery, concurrency, UX)
+From a third adversarial review focused on new bugs and gaps:
+- **Mobile:** re-lock on app background (`visibilitychange`/`pagehide`) — the only
+  reliable re-lock signal on mobile, where quit/`onunload` don't fire and timers
+  freeze. Ribbon icon now also indicates unlocked state (the status bar is hidden
+  on mobile).
+- **Crash recovery:** the ledger now records each note's scope, so "secure notes
+  left exposed" re-locks separate-password notes at their own scope (prompting
+  for a new password) instead of silently re-keying them to the vault password.
+- **Concurrency:** `lock all` backs off during a bulk run; a note open in two
+  panes no longer lets a stale buffer clobber the ciphertext; a still-visible
+  note isn't prematurely auto-locked; recovery keeps notes it couldn't secure.
+- **UX:** reading-view placeholder instead of the raw base64 block; ConfirmModal
+  keyboard support (Enter/Escape, Cancel focused); "busy"/"cancelled" feedback;
+  clearer non-markdown message; better password-strength scoring; settings revert
+  invalid input on blur.
+
 ### 0.5.1 — review fixes
 - Dropped the `builtin-modules` devDependency in favor of Node's native
   `node:module` `builtinModules` (resolves an Obsidian review warning).

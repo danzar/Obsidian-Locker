@@ -37,8 +37,16 @@ export function estimateStrength(password: string): StrengthResult {
 	if (/^(?:0123456789|abcdefghijklmnopqrstuvwxyz|password|qwerty)/i.test(password)) {
 		points = Math.min(points, 1);
 	}
+	// Low character diversity (e.g. "abababab", "aaabbb") is weak regardless of
+	// length or class count — entropy comes from variety, not just length.
+	const unique = new Set(password).size;
+	if (unique <= 2) points = 0;
+	else if (unique * 2 < len) points = Math.min(points, 2);
 
 	let score = Math.round((points * 4) / 6);
+	// Length dominates entropy: don't let class-variety alone label a short
+	// password "Strong". Cap progressively by length.
+	if (len < 12) score = Math.min(score, 2);
 	if (len < 8) score = Math.min(score, 1);
 	if (len < 5) score = 0;
 	score = Math.max(0, Math.min(4, score)) as StrengthResult["score"];

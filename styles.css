@@ -83,3 +83,19 @@
 	--callout-color: 180, 140, 40;
 	--callout-icon: lucide-lock;
 }
+
+/* Reading-view placeholder shown instead of the raw base64 payload block. */
+.locker-blob {
+	padding: 1em;
+	border-radius: var(--radius-m);
+	border: 1px dashed var(--background-modifier-border);
+	background-color: var(--background-secondary);
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+	text-align: center;
+}
+
+/* Ribbon icon tint when one or more notes are unlocked (visible on mobile). */
+.locker-ribbon-warn {
+	color: var(--text-warning, #d9a441);
+}

@@ -32,11 +32,17 @@ interface UnlockedNote {
 	lastTouched: number;
 }
 
-/** Shape persisted via saveData: settings plus a crash-recovery ledger of paths. */
+/** One crash-recovery ledger entry: a path that held plaintext, plus its scope. */
+interface LedgerEntry {
+	path: string;
+	scope: LockerScope;
+}
+
+/** Shape persisted via saveData: settings plus a crash-recovery ledger. */
 interface PersistedData {
 	settings: LockerSettings;
-	/** Paths that held plaintext on disk at last write — used to recover after a crash. */
-	ledger: string[];
+	/** Notes that held plaintext on disk at last write — used to recover after a crash. */
+	ledger: LedgerEntry[];
 }
 
 export default class LockerPlugin extends Plugin {
@@ -56,19 +62,29 @@ export default class LockerPlugin extends Plugin {
 	private bulkActive = false;
 
 	private statusBarEl: HTMLElement | null = null;
+	private ribbonEl: HTMLElement | null = null;
 	private lastActiveFile: string | null = null;
 
 	/** Ledger read at startup, and notes found still exposed (plaintext) after a crash. */
-	private startupLedger: string[] = [];
-	private exposed: TFile[] = [];
+	private startupLedger: LedgerEntry[] = [];
+	private exposed: { file: TFile; scope: LockerScope }[] = [];
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
 
 		this.addSettingTab(new LockerSettingTab(this.app, this));
 
-		this.addRibbonIcon("lock", "Lockbox: toggle lock on current note", async () => {
+		this.ribbonEl = this.addRibbonIcon("lock", "Lockbox: toggle lock on current note", async () => {
 			await this.toggleActiveNote();
+		});
+
+		// Render the encrypted payload block as a compact placeholder in reading view
+		// instead of a wall of base64.
+		this.registerMarkdownCodeBlockProcessor("locker", (_source, el) => {
+			el.createDiv({
+				cls: "locker-blob",
+				text: "🔒 Locked note — unlock with Lockbox to view its contents.",
+			});
 		});
 
 		this.statusBarEl = this.addStatusBarItem();
@@ -193,6 +209,16 @@ export default class LockerPlugin extends Plugin {
 				() => void this.lockAll(true)
 			)
 		);
+
+		// Re-lock when the app/webview goes to the background. This is the ONLY
+		// reliable re-lock signal on mobile: onunload and the 'quit' event are not
+		// delivered on an OS-initiated suspend, and setInterval (the sweep) is frozen
+		// while backgrounded. visibilitychange/pagehide fire on backgrounding in the
+		// Capacitor webview, so they bound the plaintext-on-disk window on mobile.
+		this.registerDomEvent(window.document, "visibilitychange", () => {
+			if (window.document.hidden) void this.lockAll(true);
+		});
+		this.registerDomEvent(window, "pagehide", () => void this.lockAll(true));
 	}
 
 	// ---- settings & persistence ----------------------------------------
@@ -201,9 +227,7 @@ export default class LockerPlugin extends Plugin {
 		const raw = (await this.loadData()) as Partial<PersistedData> | LockerSettings | null;
 		if (raw && typeof raw === "object" && "settings" in raw && raw.settings) {
 			this.settings = Object.assign({}, DEFAULT_SETTINGS, raw.settings);
-			this.startupLedger = Array.isArray((raw as PersistedData).ledger)
-				? (raw as PersistedData).ledger
-				: [];
+			this.startupLedger = normalizeLedger((raw as PersistedData).ledger);
 		} else {
 			// Back-compat: older data stored the settings object flat.
 			this.settings = Object.assign({}, DEFAULT_SETTINGS, (raw as LockerSettings) ?? {});
@@ -218,7 +242,7 @@ export default class LockerPlugin extends Plugin {
 	private async persist(): Promise<void> {
 		const data: PersistedData = {
 			settings: this.settings,
-			ledger: Array.from(this.unlocked.keys()),
+			ledger: Array.from(this.unlocked, ([path, info]) => ({ path, scope: info.scope })),
 		};
 		await this.saveData(data);
 	}
@@ -265,8 +289,12 @@ export default class LockerPlugin extends Plugin {
 
 	private async toggleActiveNote(): Promise<void> {
 		const file = this.app.workspace.getActiveFile();
-		if (!file || file.extension !== "md") {
-			new Notice("Lockbox: open a markdown note first.");
+		if (!file) {
+			new Notice("Lockbox: open a note first.");
+			return;
+		}
+		if (file.extension !== "md") {
+			new Notice(`Lockbox only locks markdown (.md) notes; "${file.name}" is a .${file.extension} file.`);
 			return;
 		}
 		const content = await this.readLiveContent(file);
@@ -279,15 +307,16 @@ export default class LockerPlugin extends Plugin {
 
 	// ---- reading / writing safely --------------------------------------
 
-	/** The MarkdownView currently editing `file`, if any. */
-	private findEditorView(file: TFile): MarkdownView | null {
+	/** Every MarkdownView currently editing `file` (a note can be open in many panes/windows). */
+	private findEditorViews(file: TFile): MarkdownView[] {
+		const views: MarkdownView[] = [];
 		for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
 			const view = leaf.view;
 			if (view instanceof MarkdownView && view.file && view.file.path === file.path) {
-				return view;
+				views.push(view);
 			}
 		}
-		return null;
+		return views;
 	}
 
 	/**
@@ -297,8 +326,8 @@ export default class LockerPlugin extends Plugin {
 	 * encrypting away the user's most recent, unsaved edits.
 	 */
 	private async readLiveContent(file: TFile): Promise<string> {
-		const view = this.findEditorView(file);
-		if (view) return view.editor.getValue();
+		const views = this.findEditorViews(file);
+		if (views.length > 0) return views[0].editor.getValue();
 		return this.app.vault.read(file);
 	}
 
@@ -307,16 +336,16 @@ export default class LockerPlugin extends Plugin {
 	 * (i.e. nothing changed during the slow crypto step). Returns false without
 	 * writing if it changed, so the caller can abort instead of clobbering.
 	 *
-	 *  - Open in an editor: verify the buffer is unchanged, then drive the write
-	 *    through the editor so its in-memory buffer can't later re-flush stale
-	 *    content over what we wrote.
+	 *  - Open in editor(s): abort if ANY open buffer diverged, then set EVERY open
+	 *    buffer so no stale pane can later re-flush over what we wrote (a note open
+	 *    in two panes would otherwise clobber the ciphertext).
 	 *  - Not open: use the atomic vault.process() read-modify-write.
 	 */
 	private async writeContent(file: TFile, expected: string, next: string): Promise<boolean> {
-		const view = this.findEditorView(file);
-		if (view) {
-			if (view.editor.getValue() !== expected) return false;
-			view.editor.setValue(next);
+		const views = this.findEditorViews(file);
+		if (views.length > 0) {
+			if (views.some((v) => v.editor.getValue() !== expected)) return false;
+			for (const v of views) v.editor.setValue(next);
 			await this.app.vault.modify(file, next);
 			return true;
 		}
@@ -354,7 +383,7 @@ export default class LockerPlugin extends Plugin {
 	// ---- lock / unlock --------------------------------------------------
 
 	async lockNote(file: TFile, scope: LockerScope): Promise<void> {
-		await this.withFileLock(file.path, async () => {
+		const ran = await this.withFileLock(file.path, async () => {
 			if (isLocked(await this.readLiveContent(file))) {
 				new Notice("Lockbox: that note is already locked.");
 				return;
@@ -394,10 +423,11 @@ export default class LockerPlugin extends Plugin {
 				}
 			}
 		});
+		if (!ran) new Notice("Lockbox: that note is busy — try again in a moment.");
 	}
 
 	async unlockNote(file: TFile): Promise<void> {
-		await this.withFileLock(file.path, async () => {
+		const ran = await this.withFileLock(file.path, async () => {
 			const content = await this.readLiveContent(file);
 			const payload = parseLockedNote(content);
 			if (!payload || !isLocked(content)) {
@@ -443,6 +473,7 @@ export default class LockerPlugin extends Plugin {
 				}
 			}
 		});
+		if (!ran) new Notice("Lockbox: that note is busy — try again in a moment.");
 	}
 
 	/** Re-encrypt a note that was previously unlocked, using its stored password. */
@@ -492,6 +523,13 @@ export default class LockerPlugin extends Plugin {
 	}
 
 	async lockAll(silent = false): Promise<void> {
+		// A bulk run manages its own locking; a user-triggered lock-all (status-bar
+		// click / command, silent=false) must not interfere with it. The quit/
+		// background re-lock paths pass silent=true and are allowed to force through.
+		if (this.bulkActive && !silent) {
+			new Notice("Lockbox: a bulk operation is in progress.");
+			return;
+		}
 		const paths = Array.from(this.unlocked.keys());
 		for (const path of paths) {
 			await this.relock(path);
@@ -545,7 +583,10 @@ export default class LockerPlugin extends Plugin {
 		if (!(await this.confirmBulk("encrypt", work.length, this.describeFolder(folder)))) return;
 
 		const password = await this.ensureVaultPassword(true);
-		if (!password) return;
+		if (!password) {
+			new Notice("Lockbox: cancelled — no notes were changed.");
+			return;
+		}
 
 		const progress = new Notice(`Lockbox: locking ${work.length} note(s)…`, 0);
 		let locked = 0;
@@ -624,7 +665,10 @@ export default class LockerPlugin extends Plugin {
 
 		const passwordWasCached = this.vaultPassword !== null;
 		const password = await this.ensureVaultPassword(false);
-		if (!password) return;
+		if (!password) {
+			new Notice("Lockbox: cancelled — no notes were changed.");
+			return;
+		}
 
 		const progress = new Notice(`Lockbox: unlocking ${work.length} note(s)…`, 0);
 		let unlockedCount = 0;
@@ -724,8 +768,21 @@ export default class LockerPlugin extends Plugin {
 	}
 
 	private updateStatusBar(): void {
-		if (!this.statusBarEl) return;
 		const count = this.unlocked.size;
+
+		// Mirror the unlocked state onto the ribbon icon too, so there's a visible
+		// indicator on mobile (where the status bar isn't shown).
+		if (this.ribbonEl) {
+			this.ribbonEl.toggleClass("locker-ribbon-warn", count > 0);
+			this.ribbonEl.setAttribute(
+				"aria-label",
+				count > 0
+					? `Lockbox: ${count} note(s) unlocked — tap to lock the current note`
+					: "Lockbox: toggle lock on current note"
+			);
+		}
+
+		if (!this.statusBarEl) return;
 		this.statusBarEl.empty();
 		const icon = this.statusBarEl.createSpan({ cls: "locker-status-icon" });
 		setIcon(icon, count > 0 ? "unlock" : "lock");
@@ -746,12 +803,12 @@ export default class LockerPlugin extends Plugin {
 
 	/** After load, find notes the ledger says were unlocked but are still plaintext. */
 	private async recoverExposedNotes(): Promise<void> {
-		const exposed: TFile[] = [];
-		for (const path of this.startupLedger) {
-			const file = this.app.vault.getAbstractFileByPath(path);
+		const exposed: { file: TFile; scope: LockerScope }[] = [];
+		for (const entry of this.startupLedger) {
+			const file = this.app.vault.getAbstractFileByPath(entry.path);
 			if (file instanceof TFile && file.extension === "md") {
 				try {
-					if (!isLocked(await this.app.vault.read(file))) exposed.push(file);
+					if (!isLocked(await this.app.vault.read(file))) exposed.push({ file, scope: entry.scope });
 				} catch {
 					/* unreadable; skip */
 				}
@@ -770,24 +827,70 @@ export default class LockerPlugin extends Plugin {
 		}
 	}
 
+	/** Re-encrypt one exposed note at its ORIGINAL scope. Returns true if it ends up locked. */
+	private async lockExposed(
+		entry: { file: TFile; scope: LockerScope },
+		password: string
+	): Promise<boolean> {
+		let ok = false;
+		await this.withFileLock(entry.file.path, async () => {
+			const content = await this.readLiveContent(entry.file);
+			if (isLocked(content)) {
+				ok = true; // someone already re-locked it
+				return;
+			}
+			try {
+				const payload = await this.seal(content, password, entry.scope, this.settings.iterations);
+				ok = await this.writeContent(entry.file, content, buildLockedNote(payload));
+			} catch (e) {
+				console.error("Lockbox: failed to secure exposed note", entry.file.path, e);
+			}
+		});
+		return ok;
+	}
+
 	private async secureExposed(): Promise<void> {
-		const password = await this.ensureVaultPassword(true);
-		if (!password) return;
+		// Vault-scoped notes re-lock with the vault password. Separate-password notes
+		// CANNOT be faithfully recovered (their password was only in memory), so we
+		// prompt for a new password per note rather than silently re-keying them to
+		// the vault password.
+		const vaultNotes = this.exposed.filter((e) => e.scope === "vault");
+		const noteNotes = this.exposed.filter((e) => e.scope === "note");
+		const stillExposed: { file: TFile; scope: LockerScope }[] = [];
 		let secured = 0;
-		for (const file of this.exposed.slice()) {
-			await this.withFileLock(file.path, async () => {
-				const content = await this.readLiveContent(file);
-				if (isLocked(content)) return;
-				try {
-					const payload = await this.seal(content, password, "vault", this.settings.iterations);
-					if (await this.writeContent(file, content, buildLockedNote(payload))) secured++;
-				} catch (e) {
-					console.error("Lockbox: failed to secure exposed note", e);
-				}
-			});
+
+		if (vaultNotes.length > 0) {
+			const password = await this.ensureVaultPassword(true);
+			if (!password) {
+				new Notice("Lockbox: cancelled — no notes were changed.");
+				return;
+			}
+			for (const entry of vaultNotes) {
+				if (await this.lockExposed(entry, password)) secured++;
+				else stillExposed.push(entry);
+			}
 		}
-		this.exposed = [];
-		new Notice(`Lockbox: secured ${secured} note(s) with the vault password.`);
+
+		for (const entry of noteNotes) {
+			const password = await this.promptPassword({
+				title: `Re-secure "${entry.file.basename}"`,
+				description: `This note used its own password, which can't be recovered after a crash. Set a NEW password to re-encrypt it (or cancel to leave it for now).`,
+				confirm: true,
+				cta: "Lock",
+			});
+			if (!password) {
+				stillExposed.push(entry);
+				continue;
+			}
+			if (await this.lockExposed(entry, password)) secured++;
+			else stillExposed.push(entry);
+		}
+
+		this.exposed = stillExposed;
+		new Notice(
+			`Lockbox: secured ${secured} note(s).` +
+				(stillExposed.length ? ` ${stillExposed.length} still exposed.` : "")
+		);
 	}
 
 	// ---- vault password session ----------------------------------------
@@ -833,6 +936,10 @@ export default class LockerPlugin extends Plugin {
 		this.lastActiveFile = current;
 		if (!this.settings.autoLockOnClose || this.bulkActive) return;
 		if (previous && previous !== current && this.unlocked.has(previous)) {
+			// Don't re-lock a note that's still open in another pane/window — the
+			// inactivity sweep will catch it once it's genuinely idle.
+			const prevFile = this.app.vault.getAbstractFileByPath(previous);
+			if (prevFile instanceof TFile && this.findEditorViews(prevFile).length > 0) return;
 			void this.relock(previous);
 		}
 	}
@@ -871,4 +978,19 @@ export default class LockerPlugin extends Plugin {
 	private now(): number {
 		return Date.now();
 	}
+}
+
+/** Parse a persisted ledger, tolerating the legacy string-array format (scope unknown -> vault). */
+function normalizeLedger(raw: unknown): LedgerEntry[] {
+	if (!Array.isArray(raw)) return [];
+	const out: LedgerEntry[] = [];
+	for (const e of raw) {
+		if (typeof e === "string") {
+			out.push({ path: e, scope: "vault" });
+		} else if (e && typeof e === "object" && typeof (e as LedgerEntry).path === "string") {
+			const scope: LockerScope = (e as LedgerEntry).scope === "note" ? "note" : "vault";
+			out.push({ path: (e as LedgerEntry).path, scope });
+		}
+	}
+	return out;
 }

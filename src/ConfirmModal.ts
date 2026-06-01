@@ -22,10 +22,12 @@ export class ConfirmModal extends Modal {
 	onOpen(): void {
 		this.titleEl.setText(this.opts.title);
 		this.contentEl.createEl("p", { text: this.opts.message });
+		let cancelEl: HTMLElement | null = null;
 		new Setting(this.contentEl)
-			.addButton((btn) =>
-				btn.setButtonText("Cancel").onClick(() => this.close())
-			)
+			.addButton((btn) => {
+				cancelEl = btn.buttonEl;
+				btn.setButtonText("Cancel").onClick(() => this.close());
+			})
 			.addButton((btn) => {
 				btn.setButtonText(this.opts.cta ?? "Confirm").setCta();
 				btn.onClick(() => {
@@ -33,6 +35,10 @@ export class ConfirmModal extends Modal {
 					this.close();
 				});
 			});
+		// Focus Cancel by default: the action is destructive, so an accidental
+		// Enter should cancel (activate the focused Cancel button), not confirm.
+		// Escape also cancels (Obsidian Modal closes -> resolves false).
+		window.setTimeout(() => cancelEl?.focus(), 0);
 	}
 
 	onClose(): void {
