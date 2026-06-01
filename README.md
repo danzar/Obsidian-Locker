@@ -50,7 +50,7 @@ Track pre-release builds by adding the repo `danzar/Obsidian-Locker` in the
 
 ## How a locked note looks on disk
 
-```markdown
+````markdown
 ---
 locker: true
 locker-scope: vault
@@ -63,7 +63,7 @@ locker-scope: vault
 ```locker
 {"v":1,"alg":"AES-GCM","kdf":"PBKDF2","hash":"SHA-256","iterations":310000,"salt":"…","iv":"…","ct":"…","scope":"vault"}
 ```
-```
+````
 
 The note's *own* frontmatter and body are encrypted together inside `ct`, so
 nothing of the original content leaks — only the filename stays readable.
