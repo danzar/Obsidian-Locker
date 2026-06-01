@@ -1,0 +1,47 @@
+name: Release Obsidian plugin
+
+# Push a tag matching the manifest version (e.g. `0.5.0`, no `v` prefix) to
+# build the plugin and create a draft GitHub release with main.js, manifest.json
+# and styles.css attached — the exact assets the community store expects.
+on:
+  push:
+    tags:
+      - "*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.x"
+
+      - name: Build plugin
+        run: |
+          npm ci
+          npm run build
+
+      - name: Verify tag matches manifest version
+        run: |
+          MANIFEST_VERSION=$(node -p "require('./manifest.json').version")
+          if [ "$MANIFEST_VERSION" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::Tag '${GITHUB_REF_NAME}' does not match manifest version '${MANIFEST_VERSION}'."
+            exit 1
+          fi
+
+      - name: Create draft release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          tag: ${{ github.ref_name }}
+        run: |
+          gh release create "$tag" \
+            --title="$tag" \
+            --draft \
+            --notes "Release $tag. See the changelog in README.md." \
+            main.js manifest.json styles.css

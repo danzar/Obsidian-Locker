@@ -32,6 +32,22 @@ unlock them with a password.
   ` ```locker ` block, so locked notes still sync, back up, and version like any
   other note.
 
+## Installation
+
+### From the Community Plugins store
+Once approved: in Obsidian go to **Settings → Community plugins → Browse**,
+search for **Locker**, install, then enable it.
+
+### Manual install
+Download `main.js`, `manifest.json`, and `styles.css` from the
+[latest release](https://github.com/danzar/Obsidian-Locker/releases/latest) and
+place them in `<your-vault>/.obsidian/plugins/note-locker/`, then enable
+**Locker** under Settings → Community plugins.
+
+### Beta testing with BRAT
+Track pre-release builds by adding the repo `danzar/Obsidian-Locker` in the
+[BRAT](https://github.com/TfTHacker/obsidian42-brat) plugin.
+
 ## How a locked note looks on disk
 
 ```markdown
@@ -124,10 +140,17 @@ npm test         # crypto + format round-trip tests
 ### Installing into a vault for testing
 
 Copy `manifest.json`, `main.js`, and `styles.css` into
-`<your-vault>/.obsidian/plugins/obsidian-locker/`, then enable **Locker** under
+`<your-vault>/.obsidian/plugins/note-locker/`, then enable **Locker** under
 Settings → Community plugins. (Re-run `npm run build` to refresh `main.js`.)
 
 ## Changelog
+
+### 0.5.0 — submission prep
+- Renamed plugin id `obsidian-locker` → `note-locker` (the community store
+  forbids `obsidian` in plugin ids). Display name stays **Locker**.
+- Added a GitHub Actions release workflow that builds and attaches
+  `main.js` / `manifest.json` / `styles.css` on a version tag.
+- Installation instructions (store, manual, BRAT).
 
 ### 0.4.0 — bulk operations
 - **Folder & vault lock/unlock**: right-click a folder, or use the
