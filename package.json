@@ -1,6 +1,6 @@
 {
 	"name": "obsidian-locker",
-	"version": "0.3.0",
+	"version": "0.4.0",
 	"description": "Encrypt note contents at rest while keeping the title visible.",
 	"main": "main.js",
 	"scripts": {
@@ -16,7 +16,7 @@
 		"privacy"
 	],
 	"author": "Zarware",
-	"license": "MIT",
+	"license": "GPL-3.0-or-later",
 	"devDependencies": {
 		"@types/node": "^20.11.0",
 		"builtin-modules": "^3.3.0",

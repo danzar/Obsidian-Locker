@@ -129,6 +129,17 @@ Settings → Community plugins. (Re-run `npm run build` to refresh `main.js`.)
 
 ## Changelog
 
+### 0.4.0 — bulk operations
+- **Folder & vault lock/unlock**: right-click a folder, or use the
+  Lock/Unlock-vault commands. Built on the same safe-write path (live-buffer
+  read, atomic change-checked writes, per-path mutex, self-check).
+- Bulk unlock skips per-note-password notes and reports them; a **confirmation
+  prompt** guards mass operations.
+- Hardened after a second adversarial review: per-note ledger persistence during
+  bulk unlock (crash recovery), accurate skipped/changed/failed accounting, no
+  spurious password-forgetting, auto-lock backs off during bulk runs, and the
+  progress notice always clears.
+
 ### 0.3.0 — hardening (data-safety & robustness)
 Following an adversarial multi-agent review:
 - Read the **live editor buffer** when locking an open note (no more lost
@@ -152,4 +163,5 @@ Initial MVP: lock/unlock, vault & per-note passwords, AES-GCM/PBKDF2, settings.
 
 ## License
 
-MIT © 2025 Zarware
+GNU General Public License v3.0 (GPL-3.0-or-later) © 2025 Zarware. See
+[`LICENSE`](LICENSE).

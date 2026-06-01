@@ -18,6 +18,7 @@ import {
 	SelfCheckError,
 } from "./crypto";
 import { buildLockedNote, isLocked, parseLockedNote, readScope } from "./format";
+import { ConfirmModal } from "./ConfirmModal";
 import { PasswordModal, PasswordPromptOptions } from "./PasswordModal";
 import { DEFAULT_SETTINGS, LockerSettings, LockerSettingTab } from "./settings";
 
@@ -50,6 +51,9 @@ export default class LockerPlugin extends Plugin {
 
 	/** Serializes mutating operations per file path (lock/unlock/relock). */
 	private inFlight = new Set<string>();
+
+	/** True while a bulk folder/vault operation runs, so auto-lock backs off. */
+	private bulkActive = false;
 
 	private statusBarEl: HTMLElement | null = null;
 	private lastActiveFile: string | null = null;
@@ -244,6 +248,7 @@ export default class LockerPlugin extends Plugin {
 	}
 
 	private addFolderMenuItems(menu: Menu, folder: TFolder): void {
+		if (this.notesInFolder(folder).length === 0) return; // nothing to act on
 		menu.addItem((item) =>
 			item
 				.setTitle("Locker: lock all notes in folder")
@@ -327,12 +332,13 @@ export default class LockerPlugin extends Plugin {
 	}
 
 	/**
-	 * Run `fn` while holding an exclusive in-flight lock on `path` (no-ops if busy).
-	 * Also a backstop catch so the many `void`-dispatched call sites (commands,
-	 * ribbon, events) can never surface an unhandled promise rejection.
+	 * Run `fn` while holding an exclusive in-flight lock on `path`. Returns false
+	 * (without running `fn`) if that path is already in flight — callers doing
+	 * bulk work use this to count genuinely-skipped notes. Also a backstop catch
+	 * so the many `void`-dispatched call sites can't surface unhandled rejections.
 	 */
-	private async withFileLock(path: string, fn: () => Promise<void>): Promise<void> {
-		if (this.inFlight.has(path)) return;
+	private async withFileLock(path: string, fn: () => Promise<void>): Promise<boolean> {
+		if (this.inFlight.has(path)) return false;
 		this.inFlight.add(path);
 		try {
 			await fn();
@@ -342,6 +348,7 @@ export default class LockerPlugin extends Plugin {
 		} finally {
 			this.inFlight.delete(path);
 		}
+		return true;
 	}
 
 	// ---- lock / unlock --------------------------------------------------
@@ -500,53 +507,83 @@ export default class LockerPlugin extends Plugin {
 
 	/** All markdown notes at or under `folder` (recursive). */
 	private notesInFolder(folder: TFolder): TFile[] {
+		// A non-root folder path has no trailing slash; appending "/" ensures
+		// "a" matches "a/x.md" but NOT a sibling "ab/x.md".
 		const prefix = folder.isRoot() ? "" : folder.path + "/";
 		return this.app.vault.getMarkdownFiles().filter((f) => f.path.startsWith(prefix));
 	}
 
+	/** Confirmation gate for mass operations. Overridable for tests. */
+	protected confirmBulk(verb: string, count: number, where: string): Promise<boolean> {
+		return new ConfirmModal(this.app, {
+			title: `Locker: ${verb} ${count} note(s)?`,
+			message: `This will ${verb} ${count} note(s) in ${where}.`,
+			cta: "Proceed",
+		}).open();
+	}
+
+	private describeFolder(folder: TFolder): string {
+		return folder.isRoot() ? "the entire vault" : `"${folder.path}"`;
+	}
+
 	/** Lock every currently-unlocked note in a folder with the vault password. */
 	async lockFolder(folder: TFolder): Promise<void> {
-		const targets: TFile[] = [];
+		// Single pass: classify and carry content forward so each note is read once.
+		const work: { file: TFile; content: string }[] = [];
 		for (const file of this.notesInFolder(folder)) {
 			try {
-				if (!isLocked(await this.readLiveContent(file))) targets.push(file);
+				const content = await this.readLiveContent(file);
+				if (!isLocked(content)) work.push({ file, content });
 			} catch (e) {
 				console.error("Locker: could not read note for bulk lock", file.path, e);
 			}
 		}
-		if (targets.length === 0) {
+		if (work.length === 0) {
 			new Notice("Locker: no unlocked notes to lock here.");
 			return;
 		}
+		if (!(await this.confirmBulk("encrypt", work.length, this.describeFolder(folder)))) return;
 
 		const password = await this.ensureVaultPassword(true);
 		if (!password) return;
 
-		const progress = new Notice(`Locker: locking ${targets.length} note(s)…`, 0);
+		const progress = new Notice(`Locker: locking ${work.length} note(s)…`, 0);
 		let locked = 0;
+		let changed = 0;
 		let failed = 0;
-		for (const file of targets) {
-			await this.withFileLock(file.path, async () => {
-				const content = await this.readLiveContent(file);
-				if (isLocked(content)) return;
-				try {
-					const payload = await this.seal(content, password, "vault", this.settings.iterations);
-					if (await this.writeContent(file, content, buildLockedNote(payload))) {
-						this.unlocked.delete(file.path);
-						locked++;
-					} else {
+		let skipped = 0;
+		const trouble: string[] = [];
+		this.bulkActive = true;
+		try {
+			for (const { file, content } of work) {
+				const ran = await this.withFileLock(file.path, async () => {
+					try {
+						const payload = await this.seal(content, password, "vault", this.settings.iterations);
+						if (await this.writeContent(file, content, buildLockedNote(payload))) {
+							this.unlocked.delete(file.path);
+							locked++;
+						} else {
+							changed++;
+							trouble.push(file.basename);
+						}
+					} catch (e) {
+						console.error("Locker: failed to lock note in bulk", file.path, e);
 						failed++;
+						trouble.push(file.basename);
 					}
-				} catch (e) {
-					console.error("Locker: failed to lock note in bulk", file.path, e);
-					failed++;
-				}
-			});
+				});
+				if (!ran) skipped++;
+			}
+		} finally {
+			this.bulkActive = false;
+			try {
+				await this.persist();
+				this.updateStatusBar();
+			} finally {
+				progress.hide();
+			}
 		}
-		await this.persist();
-		this.updateStatusBar();
-		progress.hide();
-		new Notice(`Locker: locked ${locked} note(s)${failed ? `, ${failed} failed` : ""}.`);
+		new Notice(this.bulkSummary("locked", locked, { changed, failed, skipped }, trouble));
 	}
 
 	/**
@@ -554,7 +591,7 @@ export default class LockerPlugin extends Plugin {
 	 * separate password are reported and skipped (unlock those individually).
 	 */
 	async unlockFolder(folder: TFolder): Promise<void> {
-		const targets: TFile[] = [];
+		const work: { file: TFile; content: string; payload: LockerPayload }[] = [];
 		let perNote = 0;
 		for (const file of this.notesInFolder(folder)) {
 			try {
@@ -562,12 +599,12 @@ export default class LockerPlugin extends Plugin {
 				const payload = parseLockedNote(content);
 				if (!payload || !isLocked(content)) continue;
 				if ((payload.scope ?? readScope(content)) === "note") perNote++;
-				else targets.push(file);
+				else work.push({ file, content, payload });
 			} catch (e) {
 				console.error("Locker: could not read note for bulk unlock", file.path, e);
 			}
 		}
-		if (targets.length === 0) {
+		if (work.length === 0) {
 			new Notice(
 				perNote > 0
 					? `Locker: ${perNote} note(s) here use a separate password — unlock them individually.`
@@ -575,51 +612,99 @@ export default class LockerPlugin extends Plugin {
 			);
 			return;
 		}
+		if (
+			!(await this.confirmBulk(
+				"decrypt (write plaintext for)",
+				work.length,
+				this.describeFolder(folder)
+			))
+		) {
+			return;
+		}
 
+		const passwordWasCached = this.vaultPassword !== null;
 		const password = await this.ensureVaultPassword(false);
 		if (!password) return;
 
-		const progress = new Notice(`Locker: unlocking ${targets.length} note(s)…`, 0);
+		const progress = new Notice(`Locker: unlocking ${work.length} note(s)…`, 0);
 		let unlockedCount = 0;
+		let wrongPassword = 0;
+		let changed = 0;
 		let failed = 0;
-		for (const file of targets) {
-			await this.withFileLock(file.path, async () => {
-				const content = await this.readLiveContent(file);
-				const payload = parseLockedNote(content);
-				if (!payload) return;
-				try {
-					const plaintext = await decryptContent(payload, password);
-					if (await this.writeContent(file, content, plaintext)) {
-						this.unlocked.set(file.path, {
-							password,
-							scope: "vault",
-							iterations: payload.iterations,
-							lastTouched: this.now(),
-						});
-						unlockedCount++;
-					} else {
-						failed++;
+		let skipped = 0;
+		const trouble: string[] = [];
+		this.bulkActive = true;
+		try {
+			for (const { file, content, payload } of work) {
+				const ran = await this.withFileLock(file.path, async () => {
+					try {
+						const plaintext = await decryptContent(payload, password);
+						if (await this.writeContent(file, content, plaintext)) {
+							this.unlocked.set(file.path, {
+								password,
+								scope: "vault",
+								iterations: payload.iterations,
+								lastTouched: this.now(),
+							});
+							// Persist per note so a crash mid-bulk still leaves a recoverable
+							// ledger of the plaintext we've already written (matches unlockNote).
+							await this.persist();
+							unlockedCount++;
+						} else {
+							changed++;
+							trouble.push(file.basename);
+						}
+					} catch (e) {
+						if (e instanceof DecryptError) {
+							wrongPassword++;
+						} else {
+							console.error("Locker: failed to unlock note in bulk", file.path, e);
+							failed++;
+						}
+						trouble.push(file.basename);
 					}
-				} catch (e) {
-					if (e instanceof DecryptError) failed++;
-					else {
-						console.error("Locker: failed to unlock note in bulk", file.path, e);
-						failed++;
-					}
-				}
-			});
+				});
+				if (!ran) skipped++;
+			}
+
+			if (unlockedCount > 0) {
+				this.cacheVaultPassword(password);
+			} else if (!passwordWasCached && wrongPassword > 0 && changed === 0 && failed === 0) {
+				// Only drop a freshly-entered password when the failures are clearly
+				// authentication failures — never a previously-good cached session
+				// password, and never when writes merely aborted on concurrent edits.
+				this.forgetVaultPassword(true);
+			}
+		} finally {
+			this.bulkActive = false;
+			try {
+				await this.persist();
+				this.updateStatusBar();
+			} finally {
+				progress.hide();
+			}
 		}
-		if (unlockedCount > 0) this.cacheVaultPassword(password);
-		else if (failed === targets.length) this.forgetVaultPassword(true); // wrong password
-		await this.persist();
-		this.updateStatusBar();
-		progress.hide();
+		const extra = perNote ? ` ${perNote} use a separate password.` : "";
 		new Notice(
-			`Locker: unlocked ${unlockedCount} note(s)` +
-				(failed ? `, ${failed} failed` : "") +
-				(perNote ? `; ${perNote} use a separate password (unlock individually)` : "") +
-				"."
+			this.bulkSummary("unlocked", unlockedCount, { wrongPassword, changed, failed, skipped }, trouble) +
+				extra
 		);
+	}
+
+	/** Build a human summary line for a bulk run, naming the notes that didn't complete. */
+	private bulkSummary(
+		verb: string,
+		ok: number,
+		issues: { wrongPassword?: number; changed?: number; failed?: number; skipped?: number },
+		trouble: string[]
+	): string {
+		const parts: string[] = [];
+		if (issues.wrongPassword) parts.push(`${issues.wrongPassword} wrong password`);
+		if (issues.changed) parts.push(`${issues.changed} changed (retry)`);
+		if (issues.failed) parts.push(`${issues.failed} failed`);
+		if (issues.skipped) parts.push(`${issues.skipped} busy`);
+		const names = trouble.length ? ` Left unchanged: ${trouble.slice(0, 5).join(", ")}${trouble.length > 5 ? "…" : ""}.` : "";
+		return `Locker: ${verb} ${ok} note(s)${parts.length ? ` — ${parts.join(", ")}` : ""}.${names}`;
 	}
 
 	/**
@@ -746,13 +831,15 @@ export default class LockerPlugin extends Plugin {
 		const current = this.app.workspace.getActiveFile()?.path ?? null;
 		const previous = this.lastActiveFile;
 		this.lastActiveFile = current;
-		if (!this.settings.autoLockOnClose) return;
+		if (!this.settings.autoLockOnClose || this.bulkActive) return;
 		if (previous && previous !== current && this.unlocked.has(previous)) {
 			void this.relock(previous);
 		}
 	}
 
 	private async sweep(): Promise<void> {
+		// Don't fight a bulk run — it manages its own locking and password lifetime.
+		if (this.bulkActive) return;
 		const now = this.now();
 
 		if (this.settings.autoLockMinutes > 0) {
