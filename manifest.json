@@ -1,0 +1,10 @@
+{
+	"id": "obsidian-locker",
+	"name": "Locker",
+	"version": "0.3.0",
+	"minAppVersion": "1.4.0",
+	"description": "Encrypt note contents at rest while keeping the title visible. Lock and unlock notes with a vault-wide password or a per-note password.",
+	"author": "Zarware",
+	"authorUrl": "",
+	"isDesktopOnly": false
+}

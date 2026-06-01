@@ -1,0 +1,85 @@
+.locker-modal-desc {
+	color: var(--text-muted);
+	margin-top: 0;
+	margin-bottom: 1em;
+	font-size: var(--font-ui-small);
+}
+
+.locker-modal-error {
+	color: var(--text-error);
+	font-size: var(--font-ui-small);
+	margin-top: 0.5em;
+}
+
+.locker-settings-warning {
+	margin-top: 1.5em;
+	padding: 0.75em 1em;
+	border-radius: var(--radius-m);
+	background-color: var(--background-modifier-error-rgb, var(--background-secondary));
+	border: 1px solid var(--background-modifier-border);
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+}
+
+/* Password strength meter. */
+.locker-strength {
+	display: flex;
+	align-items: center;
+	gap: 0.6em;
+	margin: 0 0 0.75em 0;
+}
+
+.locker-strength-track {
+	flex: 1;
+	height: 6px;
+	border-radius: 3px;
+	background-color: var(--background-modifier-border);
+	overflow: hidden;
+}
+
+.locker-strength-fill {
+	height: 100%;
+	width: 0;
+	border-radius: 3px;
+	transition: width 120ms ease, background-color 120ms ease;
+	background-color: var(--text-error);
+}
+
+.locker-strength-fill[data-score="2"] {
+	background-color: var(--text-warning, #d9a441);
+}
+
+.locker-strength-fill[data-score="3"],
+.locker-strength-fill[data-score="4"] {
+	background-color: var(--text-success, #4caf50);
+}
+
+.locker-strength-label {
+	min-width: 5em;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+/* Status bar indicator. */
+.locker-status {
+	cursor: default;
+	display: inline-flex;
+	align-items: center;
+	gap: 0.35em;
+}
+
+.locker-status-icon {
+	display: inline-flex;
+	align-items: center;
+}
+
+.locker-status-warn {
+	color: var(--text-warning, #d9a441);
+	cursor: pointer;
+}
+
+/* Style the encrypted-note callout (type "lock"). */
+.callout[data-callout="lock"] {
+	--callout-color: 180, 140, 40;
+	--callout-icon: lucide-lock;
+}

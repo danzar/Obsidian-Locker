@@ -1,0 +1,17 @@
+# build / deps
+node_modules/
+main.js
+*.js.map
+
+# obsidian local plugin test data
+data.json
+
+# os
+.DS_Store
+
+# local test vault (sample notes + symlinked plugin)
+test-vault/
+
+# excluded per workspace policy
+.notes/
+.backups/
