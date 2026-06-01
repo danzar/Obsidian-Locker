@@ -145,6 +145,10 @@ Settings → Community plugins. (Re-run `npm run build` to refresh `main.js`.)
 
 ## Changelog
 
+### 0.5.1 — review fixes
+- Dropped the `builtin-modules` devDependency in favor of Node's native
+  `node:module` `builtinModules` (resolves an Obsidian review warning).
+
 ### 0.5.0 — rename to Lockbox + submission prep
 - Renamed the plugin to **Lockbox** (id `lockbox`). The previous name/id
   `obsidian-locker` couldn't be used — the community store forbids `obsidian` in
