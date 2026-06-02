@@ -1,10 +1,10 @@
 {
 	"id": "lockbox",
 	"name": "Lockbox",
-	"version": "0.5.2",
+	"version": "0.5.3",
 	"minAppVersion": "1.4.0",
 	"description": "Encrypt note contents at rest while keeping the title visible. Lock and unlock notes with a vault-wide password or a per-note password.",
 	"author": "Danzar",
-	"authorUrl": "",
+	"authorUrl": "https://github.com/danzar",
 	"isDesktopOnly": false
 }
